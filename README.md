@@ -1,6 +1,6 @@
 # crash-reporter-frontend
 
-Frontend for Crash Reporter, offering a user-friendly interface to view and manage crash reports.
+Minimal frontend for crash-reporter-backend, offering a user-friendly interface to view and manage crash reports.
 
 ## Run development server
 
