@@ -233,7 +233,7 @@ export default function ProjectPage() {
                 style={{ cursor: "pointer", userSelect: "none" }}
               >
                 <Group gap={6} wrap="nowrap">
-                  <span>Timestamp</span>
+                  <span>Timestamp (UTC)</span>
                   {sortAsc ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
                 </Group>
               </Table.Th>
