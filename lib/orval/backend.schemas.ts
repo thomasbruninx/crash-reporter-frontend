@@ -53,6 +53,7 @@ export interface ProjectOut {
   uuid: string;
   project_id: string;
   name: string;
+  stats?: ProjectStats | null;
 }
 
 export interface ProjectQueryResponse {
@@ -60,6 +61,13 @@ export interface ProjectQueryResponse {
   total: number;
   page: number;
   resultsperpage: number;
+}
+
+export interface ProjectStats {
+  instances: number;
+  day: number;
+  week: number;
+  total: number;
 }
 
 export type ProjectUpdateProjectId = string | null;
@@ -138,6 +146,9 @@ project_ids?: string[] | null;
 name?: string | null;
 page?: number;
 resultsperpage?: number;
+include_stats?: boolean;
+sort_by?: string | null;
+sort_dir?: string;
 };
 
 export type QueryInstancesApiV1InstanceQueryGetParams = {
@@ -146,6 +157,8 @@ project_uuids?: string[] | null;
 project_ids?: string[] | null;
 page?: number;
 resultsperpage?: number;
+sort_by?: string | null;
+sort_dir?: string;
 };
 
 export type QueryReportsApiV1ReportQueryGetParams = {
@@ -157,5 +170,6 @@ project_name?: string | null;
 severity?: string[] | null;
 page?: number;
 resultsperpage?: number;
+sort_by?: string | null;
+sort_dir?: string;
 };
-

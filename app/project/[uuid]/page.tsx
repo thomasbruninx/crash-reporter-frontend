@@ -40,7 +40,7 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import { IconPencil } from "@tabler/icons-react";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 function fmt(ts: string): string {
   const d = new Date(ts);
@@ -56,6 +56,9 @@ function reportRowBackground(severity: string): string | undefined {
   return undefined;
 }
 
+type ReportSortField = "timestamp" | "severity" | "instance_uuid";
+type InstanceSortField = "" | "uuid" | "notes";
+
 export default function ProjectPage() {
   const params = useParams<{ uuid: string }>();
   const router = useRouter();
@@ -66,14 +69,17 @@ export default function ProjectPage() {
   const [reportTotal, setReportTotal] = useState(0);
   const [reportPage, setReportPage] = useState(1);
   const [reportResultsPerPage, setReportResultsPerPage] = useState(25);
+  const [reportSortBy, setReportSortBy] = useState<ReportSortField>("timestamp");
+  const [reportSortDir, setReportSortDir] = useState<"asc" | "desc">("desc");
   const [instances, setInstances] = useState<InstanceOut[]>([]);
   const [instanceTotal, setInstanceTotal] = useState(0);
   const [instancePage, setInstancePage] = useState(1);
   const [instanceResultsPerPage, setInstanceResultsPerPage] = useState(25);
+  const [instanceSortBy, setInstanceSortBy] = useState<InstanceSortField>("");
+  const [instanceSortDir, setInstanceSortDir] = useState<"asc" | "desc">("asc");
   const [selected, setSelected] = useState("");
   const [filterSeverity, setFilterSeverity] = useState<string>("");
   const [filterInstance, setFilterInstance] = useState("");
-  const [sortAsc, setSortAsc] = useState(false);
   const [viewOpen, setViewOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [instancesOpen, setInstancesOpen] = useState(false);
@@ -85,7 +91,11 @@ export default function ProjectPage() {
     nextReportPage: number,
     nextReportResultsPerPage: number,
     nextInstancePage: number,
-    nextInstanceResultsPerPage: number
+    nextInstanceResultsPerPage: number,
+    nextReportSortBy: ReportSortField,
+    nextReportSortDir: "asc" | "desc",
+    nextInstanceSortBy: InstanceSortField,
+    nextInstanceSortDir: "asc" | "desc"
   ) => {
     try {
       const projectResponse = await queryProjects({ uuids: [uuid], page: 0, resultsperpage: 1 });
@@ -95,12 +105,16 @@ export default function ProjectPage() {
       const [reportResponse, instanceResponse] = await Promise.all([
         queryReports(uuid, filterSeverity || undefined, normalizedInstanceFilter || undefined, {
           page: nextReportPage - 1,
-          resultsperpage: nextReportResultsPerPage
+          resultsperpage: nextReportResultsPerPage,
+          sort_by: nextReportSortBy,
+          sort_dir: nextReportSortDir
         }),
         queryInstances({
           projectUuid: uuid,
           page: nextInstancePage - 1,
-          resultsperpage: nextInstanceResultsPerPage
+          resultsperpage: nextInstanceResultsPerPage,
+          sort_by: nextInstanceSortBy || undefined,
+          sort_dir: nextInstanceSortBy ? nextInstanceSortDir : undefined
         })
       ]);
 
@@ -130,27 +144,61 @@ export default function ProjectPage() {
   }, [uuid, filterSeverity, normalizedInstanceFilter]);
 
   useEffect(() => {
-    void loadData(reportPage, reportResultsPerPage, instancePage, instanceResultsPerPage);
+    void loadData(
+      reportPage,
+      reportResultsPerPage,
+      instancePage,
+      instanceResultsPerPage,
+      reportSortBy,
+      reportSortDir,
+      instanceSortBy,
+      instanceSortDir
+    );
   }, [
-    uuid,
-    filterSeverity,
-    normalizedInstanceFilter,
     reportPage,
     reportResultsPerPage,
     instancePage,
     instanceResultsPerPage,
+    reportSortBy,
+    reportSortDir,
+    instanceSortBy,
+    instanceSortDir,
     loadData
   ]);
 
-  const sortedReports = useMemo(() => {
-    const copy = [...reports];
-    copy.sort((a, b) =>
-      sortAsc ? a.timestamp.localeCompare(b.timestamp) : b.timestamp.localeCompare(a.timestamp)
-    );
-    return copy;
-  }, [reports, sortAsc]);
+  const selectedReport = reports.find((r) => r.uuid === selected);
 
-  const selectedReport = sortedReports.find((r) => r.uuid === selected);
+  function onSortReports(field: ReportSortField) {
+    if (reportSortBy === field) {
+      setReportSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+      setReportPage(1);
+      return;
+    }
+    setReportSortBy(field);
+    setReportSortDir("asc");
+    setReportPage(1);
+  }
+
+  function reportSortIcon(field: ReportSortField) {
+    if (reportSortBy !== field) return <ExpandMoreIcon fontSize="small" />;
+    return reportSortDir === "asc" ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />;
+  }
+
+  function onSortInstances(field: Exclude<InstanceSortField, "">) {
+    if (instanceSortBy === field) {
+      setInstanceSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+      setInstancePage(1);
+      return;
+    }
+    setInstanceSortBy(field);
+    setInstanceSortDir("asc");
+    setInstancePage(1);
+  }
+
+  function instanceSortIcon(field: Exclude<InstanceSortField, "">) {
+    if (instanceSortBy !== field) return <ExpandMoreIcon fontSize="small" />;
+    return instanceSortDir === "asc" ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />;
+  }
 
   async function saveName() {
     try {
@@ -169,7 +217,16 @@ export default function ProjectPage() {
       notifications.show({ color: "green", title: "Report", message: "Report deleted" });
       setDeleteOpen(false);
       setSelected("");
-      await loadData(reportPage, reportResultsPerPage, instancePage, instanceResultsPerPage);
+      await loadData(
+        reportPage,
+        reportResultsPerPage,
+        instancePage,
+        instanceResultsPerPage,
+        reportSortBy,
+        reportSortDir,
+        instanceSortBy,
+        instanceSortDir
+      );
     } catch {
       notifications.show({ color: "red", title: "Report", message: "Delete failed" });
     }
@@ -190,7 +247,16 @@ export default function ProjectPage() {
     try {
       await updateInstance(inst.uuid, notes);
       notifications.show({ color: "green", title: "Instance", message: "Instance updated" });
-      await loadData(reportPage, reportResultsPerPage, instancePage, instanceResultsPerPage);
+      await loadData(
+        reportPage,
+        reportResultsPerPage,
+        instancePage,
+        instanceResultsPerPage,
+        reportSortBy,
+        reportSortDir,
+        instanceSortBy,
+        instanceSortDir
+      );
     } catch {
       notifications.show({ color: "red", title: "Instance", message: "Instance update failed" });
     }
@@ -200,7 +266,16 @@ export default function ProjectPage() {
     try {
       await deleteInstance(inst.uuid);
       notifications.show({ color: "green", title: "Instance", message: "Instance deleted" });
-      await loadData(reportPage, reportResultsPerPage, instancePage, instanceResultsPerPage);
+      await loadData(
+        reportPage,
+        reportResultsPerPage,
+        instancePage,
+        instanceResultsPerPage,
+        reportSortBy,
+        reportSortDir,
+        instanceSortBy,
+        instanceSortDir
+      );
     } catch {
       notifications.show({ color: "red", title: "Instance", message: "Instance delete failed" });
     }
@@ -281,21 +356,28 @@ export default function ProjectPage() {
         <Table withTableBorder highlightOnHover>
           <Table.Thead>
             <Table.Tr>
-              <Table.Th
-                onClick={() => setSortAsc((s) => !s)}
-                style={{ cursor: "pointer", userSelect: "none" }}
-              >
+              <Table.Th onClick={() => onSortReports("timestamp")} style={{ cursor: "pointer", userSelect: "none" }}>
                 <Group gap={6} wrap="nowrap">
                   <span>Timestamp (UTC)</span>
-                  {sortAsc ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                  {reportSortIcon("timestamp")}
                 </Group>
               </Table.Th>
-              <Table.Th>Severity</Table.Th>
-              <Table.Th>Instance UUID</Table.Th>
+              <Table.Th onClick={() => onSortReports("severity")} style={{ cursor: "pointer", userSelect: "none" }}>
+                <Group gap={6} wrap="nowrap">
+                  <span>Severity</span>
+                  {reportSortIcon("severity")}
+                </Group>
+              </Table.Th>
+              <Table.Th onClick={() => onSortReports("instance_uuid")} style={{ cursor: "pointer", userSelect: "none" }}>
+                <Group gap={6} wrap="nowrap">
+                  <span>Instance UUID</span>
+                  {reportSortIcon("instance_uuid")}
+                </Group>
+              </Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {sortedReports.length === 0 ? (
+            {reports.length === 0 ? (
               <Table.Tr>
                 <Table.Td colSpan={3}>
                   <Text c="dimmed" size="sm">
@@ -304,7 +386,7 @@ export default function ProjectPage() {
                 </Table.Td>
               </Table.Tr>
             ) : (
-              sortedReports.map((r) => (
+              reports.map((r) => (
                 <Table.Tr
                   key={r.uuid}
                   onClick={() => setSelected(r.uuid)}
@@ -377,8 +459,18 @@ export default function ProjectPage() {
         <Table withTableBorder>
           <Table.Thead>
             <Table.Tr>
-              <Table.Th>UUID</Table.Th>
-              <Table.Th>Notes</Table.Th>
+              <Table.Th onClick={() => onSortInstances("uuid")} style={{ cursor: "pointer", userSelect: "none" }}>
+                <Group gap={6} wrap="nowrap">
+                  <span>UUID</span>
+                  {instanceSortIcon("uuid")}
+                </Group>
+              </Table.Th>
+              <Table.Th onClick={() => onSortInstances("notes")} style={{ cursor: "pointer", userSelect: "none" }}>
+                <Group gap={6} wrap="nowrap">
+                  <span>Notes</span>
+                  {instanceSortIcon("notes")}
+                </Group>
+              </Table.Th>
               <Table.Th>Actions</Table.Th>
             </Table.Tr>
           </Table.Thead>
@@ -468,19 +560,10 @@ function InstanceRow({
       </Table.Td>
       <Table.Td>
         <Group>
-          <Button
-            variant="default"
-            size="xs"
-            onClick={() => setEditing((v) => !v)}
-          >
+          <Button variant="default" size="xs" onClick={() => setEditing((v) => !v)}>
             {editing ? <CloseIcon fontSize="small" /> : <EditIcon fontSize="small" />}
           </Button>
-          <Button
-            size="xs"
-            color="red"
-            variant="light"
-            onClick={() => onDelete(instance)}
-          >
+          <Button size="xs" color="red" variant="light" onClick={() => onDelete(instance)}>
             <DeleteOutlineIcon fontSize="small" />
           </Button>
         </Group>

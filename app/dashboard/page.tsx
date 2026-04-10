@@ -1,6 +1,6 @@
 "use client";
 
-import { createProject, deleteProject, queryInstances, queryProjects, queryReports } from "@/lib/api";
+import { createProject, deleteProject, queryProjects } from "@/lib/api";
 import type { ProjectOut } from "@/lib/orval/backend.schemas";
 import { ActionToolbar } from "@/components/mantineui/action-toolbar";
 import { ConfirmModal } from "@/components/mantineui/confirm-modal";
@@ -18,7 +18,6 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-type ProjectStats = { instances: number; day: number; week: number; total: number };
 type SortField = "name" | "project_id" | "instances" | "day" | "week" | "total";
 
 export default function DashboardPage() {
@@ -32,13 +31,18 @@ export default function DashboardPage() {
   const [name, setName] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [resultsPerPage, setResultsPerPage] = useState(25);
-  const [stats, setStats] = useState<Record<string, ProjectStats>>({});
   const [sortField, setSortField] = useState<SortField>("name");
-  const [sortAsc, setSortAsc] = useState(true);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
-  const load = useCallback(async (page: number, perPage: number) => {
+  const load = useCallback(async (page: number, perPage: number, sortBy: SortField, nextSortDir: "asc" | "desc") => {
     try {
-      const data = await queryProjects({ page: page - 1, resultsperpage: perPage });
+      const data = await queryProjects({
+        page: page - 1,
+        resultsperpage: perPage,
+        include_stats: true,
+        sort_by: sortBy,
+        sort_dir: nextSortDir
+      });
       const totalPages = Math.max(1, Math.ceil(data.total / perPage));
       if (page > totalPages) {
         setCurrentPage(totalPages);
@@ -48,97 +52,31 @@ export default function DashboardPage() {
       setProjects(items);
       setTotalProjects(data.total);
       setSelected((prev) => (items.some((p) => p.uuid === prev) ? prev : ""));
-      const nextStats: Record<string, ProjectStats> = {};
-      const settledStats = await Promise.allSettled(
-        items.map(async (p) => {
-          const [instances, reports] = await Promise.all([
-            queryInstances({ projectUuid: p.uuid, projectId: p.project_id, resultsperpage: 0 }),
-            queryReports(p.uuid, undefined, undefined, { resultsperpage: 0 })
-          ]);
-          const now = Date.now();
-          return {
-            uuid: p.uuid,
-            stats: {
-              instances: instances.items.length,
-              day: reports.items.filter((r) => now - new Date(r.timestamp).getTime() <= 24 * 3600 * 1000).length,
-              week: reports.items.filter((r) => now - new Date(r.timestamp).getTime() <= 7 * 24 * 3600 * 1000).length,
-              total: reports.items.length
-            }
-          };
-        })
-      );
-
-      for (const p of items) {
-        nextStats[p.uuid] = { instances: 0, day: 0, week: 0, total: 0 };
-      }
-
-      for (const result of settledStats) {
-        if (result.status === "fulfilled") {
-          nextStats[result.value.uuid] = result.value.stats;
-        }
-      }
-      const hasStatsFailures = settledStats.some((result) => result.status === "rejected");
-      if (hasStatsFailures) {
-        notifications.show({
-          color: "yellow",
-          title: "Projects",
-          message: "Some project counters could not be loaded; showing available data."
-        });
-      }
-      setStats(nextStats);
     } catch {
       notifications.show({ color: "red", title: "Projects", message: "Failed to load projects" });
     }
   }, []);
 
   useEffect(() => {
-    void load(currentPage, resultsPerPage);
-  }, [currentPage, resultsPerPage, load]);
+    void load(currentPage, resultsPerPage, sortField, sortDir);
+  }, [currentPage, resultsPerPage, sortField, sortDir, load]);
 
   const selectedProject = useMemo(() => projects.find((p) => p.uuid === selected), [projects, selected]);
-  const sortedProjects = useMemo(() => {
-    const items = [...projects];
-    items.sort((a, b) => {
-      const aStats = stats[a.uuid] ?? { instances: 0, day: 0, week: 0, total: 0 };
-      const bStats = stats[b.uuid] ?? { instances: 0, day: 0, week: 0, total: 0 };
-      let result = 0;
-      switch (sortField) {
-        case "name":
-          result = a.name.localeCompare(b.name);
-          break;
-        case "project_id":
-          result = a.project_id.localeCompare(b.project_id);
-          break;
-        case "instances":
-          result = aStats.instances - bStats.instances;
-          break;
-        case "day":
-          result = aStats.day - bStats.day;
-          break;
-        case "week":
-          result = aStats.week - bStats.week;
-          break;
-        case "total":
-          result = aStats.total - bStats.total;
-          break;
-      }
-      return sortAsc ? result : -result;
-    });
-    return items;
-  }, [projects, stats, sortField, sortAsc]);
 
   function onSort(field: SortField) {
     if (sortField === field) {
-      setSortAsc((prev) => !prev);
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+      setCurrentPage(1);
       return;
     }
     setSortField(field);
-    setSortAsc(true);
+    setSortDir("asc");
+    setCurrentPage(1);
   }
 
   function sortIcon(field: SortField) {
     if (sortField !== field) return <ExpandMoreIcon fontSize="small" />;
-    return sortAsc ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />;
+    return sortDir === "asc" ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />;
   }
 
   async function onCreate() {
@@ -149,7 +87,7 @@ export default function DashboardPage() {
       setProjectId("");
       setName("");
       setCurrentPage(1);
-      await load(1, resultsPerPage);
+      await load(1, resultsPerPage, sortField, sortDir);
     } catch {
       notifications.show({ color: "red", title: "Project", message: "Create failed" });
     }
@@ -162,7 +100,7 @@ export default function DashboardPage() {
       notifications.show({ color: "green", title: "Project", message: "Project deleted" });
       setShowDelete(false);
       setSelected("");
-      await load(currentPage, resultsPerPage);
+      await load(currentPage, resultsPerPage, sortField, sortDir);
     } catch {
       notifications.show({ color: "red", title: "Project", message: "Delete failed" });
     }
@@ -245,7 +183,7 @@ export default function DashboardPage() {
                 </Table.Td>
               </Table.Tr>
             ) : (
-              sortedProjects.map((p) => (
+              projects.map((p) => (
                 <Table.Tr
                   key={p.uuid}
                   onClick={() => setSelected(p.uuid)}
@@ -253,10 +191,10 @@ export default function DashboardPage() {
                 >
                   <Table.Td>{p.name}</Table.Td>
                   <Table.Td>{p.project_id}</Table.Td>
-                  <Table.Td>{stats[p.uuid]?.instances ?? 0}</Table.Td>
-                  <Table.Td>{stats[p.uuid]?.day ?? 0}</Table.Td>
-                  <Table.Td>{stats[p.uuid]?.week ?? 0}</Table.Td>
-                  <Table.Td>{stats[p.uuid]?.total ?? 0}</Table.Td>
+                  <Table.Td>{p.stats?.instances ?? 0}</Table.Td>
+                  <Table.Td>{p.stats?.day ?? 0}</Table.Td>
+                  <Table.Td>{p.stats?.week ?? 0}</Table.Td>
+                  <Table.Td>{p.stats?.total ?? 0}</Table.Td>
                 </Table.Tr>
               ))
             )}
