@@ -13,6 +13,7 @@ import { ActionToolbar } from "@/components/mantineui/action-toolbar";
 import { ConfirmModal } from "@/components/mantineui/confirm-modal";
 import { PageShell } from "@/components/mantineui/page-shell";
 import { SectionCard } from "@/components/mantineui/section-card";
+import { TablePaginationControls } from "@/components/mantineui/table-pagination-controls";
 import type { InstanceOut, ReportOut } from "@/lib/orval/backend.schemas";
 import {
   ActionIcon,
@@ -39,7 +40,7 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import { IconPencil } from "@tabler/icons-react";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 function fmt(ts: string): string {
   const d = new Date(ts);
@@ -62,7 +63,13 @@ export default function ProjectPage() {
   const [name, setName] = useState("");
   const [editingName, setEditingName] = useState(false);
   const [reports, setReports] = useState<ReportOut[]>([]);
+  const [reportTotal, setReportTotal] = useState(0);
+  const [reportPage, setReportPage] = useState(1);
+  const [reportResultsPerPage, setReportResultsPerPage] = useState(25);
   const [instances, setInstances] = useState<InstanceOut[]>([]);
+  const [instanceTotal, setInstanceTotal] = useState(0);
+  const [instancePage, setInstancePage] = useState(1);
+  const [instanceResultsPerPage, setInstanceResultsPerPage] = useState(25);
   const [selected, setSelected] = useState("");
   const [filterSeverity, setFilterSeverity] = useState<string>("");
   const [filterInstance, setFilterInstance] = useState("");
@@ -72,31 +79,68 @@ export default function ProjectPage() {
   const [instancesOpen, setInstancesOpen] = useState(false);
   const [instanceDeleteOpen, setInstanceDeleteOpen] = useState(false);
   const [instanceToDelete, setInstanceToDelete] = useState<InstanceOut | null>(null);
-  const lastLoadKeyRef = useRef<string>("");
   const normalizedInstanceFilter = filterInstance.trim();
 
-  async function load() {
+  const loadData = useCallback(async (
+    nextReportPage: number,
+    nextReportResultsPerPage: number,
+    nextInstancePage: number,
+    nextInstanceResultsPerPage: number
+  ) => {
     try {
-      const projects = await queryProjects();
-      const project = projects.find((x) => x.uuid === uuid);
+      const projectResponse = await queryProjects({ uuids: [uuid], page: 0, resultsperpage: 1 });
+      const project = projectResponse.items[0];
       setName(project?.name || "Project");
-      const [rs, is] = await Promise.all([
-        queryReports(uuid, filterSeverity || undefined, normalizedInstanceFilter || undefined),
-        queryInstances({ projectUuid: uuid, projectId: project?.project_id })
+
+      const [reportResponse, instanceResponse] = await Promise.all([
+        queryReports(uuid, filterSeverity || undefined, normalizedInstanceFilter || undefined, {
+          page: nextReportPage - 1,
+          resultsperpage: nextReportResultsPerPage
+        }),
+        queryInstances({
+          projectUuid: uuid,
+          page: nextInstancePage - 1,
+          resultsperpage: nextInstanceResultsPerPage
+        })
       ]);
-      setReports(rs);
-      setInstances(is);
+
+      const reportTotalPages = Math.max(1, Math.ceil(reportResponse.total / nextReportResultsPerPage));
+      const instanceTotalPages = Math.max(1, Math.ceil(instanceResponse.total / nextInstanceResultsPerPage));
+
+      let shouldRefetch = false;
+      if (nextReportPage > reportTotalPages) {
+        setReportPage(reportTotalPages);
+        shouldRefetch = true;
+      }
+      if (nextInstancePage > instanceTotalPages) {
+        setInstancePage(instanceTotalPages);
+        shouldRefetch = true;
+      }
+      if (shouldRefetch) return;
+
+      setReports(reportResponse.items);
+      setReportTotal(reportResponse.total);
+      setSelected((prev) => (reportResponse.items.some((r) => r.uuid === prev) ? prev : ""));
+
+      setInstances(instanceResponse.items);
+      setInstanceTotal(instanceResponse.total);
     } catch {
       notifications.show({ color: "red", title: "Project", message: "Failed to load project data" });
     }
-  }
+  }, [uuid, filterSeverity, normalizedInstanceFilter]);
 
   useEffect(() => {
-    const loadKey = `${uuid}|${filterSeverity}|${normalizedInstanceFilter}`;
-    if (lastLoadKeyRef.current === loadKey) return;
-    lastLoadKeyRef.current = loadKey;
-    void load();
-  }, [uuid, filterSeverity, normalizedInstanceFilter]);
+    void loadData(reportPage, reportResultsPerPage, instancePage, instanceResultsPerPage);
+  }, [
+    uuid,
+    filterSeverity,
+    normalizedInstanceFilter,
+    reportPage,
+    reportResultsPerPage,
+    instancePage,
+    instanceResultsPerPage,
+    loadData
+  ]);
 
   const sortedReports = useMemo(() => {
     const copy = [...reports];
@@ -125,7 +169,7 @@ export default function ProjectPage() {
       notifications.show({ color: "green", title: "Report", message: "Report deleted" });
       setDeleteOpen(false);
       setSelected("");
-      await load();
+      await loadData(reportPage, reportResultsPerPage, instancePage, instanceResultsPerPage);
     } catch {
       notifications.show({ color: "red", title: "Report", message: "Delete failed" });
     }
@@ -146,7 +190,7 @@ export default function ProjectPage() {
     try {
       await updateInstance(inst.uuid, notes);
       notifications.show({ color: "green", title: "Instance", message: "Instance updated" });
-      await load();
+      await loadData(reportPage, reportResultsPerPage, instancePage, instanceResultsPerPage);
     } catch {
       notifications.show({ color: "red", title: "Instance", message: "Instance update failed" });
     }
@@ -156,7 +200,7 @@ export default function ProjectPage() {
     try {
       await deleteInstance(inst.uuid);
       notifications.show({ color: "green", title: "Instance", message: "Instance deleted" });
-      await load();
+      await loadData(reportPage, reportResultsPerPage, instancePage, instanceResultsPerPage);
     } catch {
       notifications.show({ color: "red", title: "Instance", message: "Instance delete failed" });
     }
@@ -191,14 +235,23 @@ export default function ProjectPage() {
             label="Severity"
             data={["", "low", "medium", "high", "critical"]}
             value={filterSeverity}
-            onChange={(value) => setFilterSeverity(value || "")}
+            onChange={(value) => {
+              setFilterSeverity(value || "");
+              setReportPage(1);
+            }}
           />
           <TextInput
             label="Instance UUID"
             placeholder="Filter instance UUID"
             value={filterInstance}
-            onChange={(e) => setFilterInstance(e.currentTarget.value)}
-            onBlur={(e) => setFilterInstance(e.currentTarget.value.trim())}
+            onChange={(e) => {
+              setFilterInstance(e.currentTarget.value);
+              setReportPage(1);
+            }}
+            onBlur={(e) => {
+              setFilterInstance(e.currentTarget.value.trim());
+              setReportPage(1);
+            }}
           />
         </Group>
       </ActionToolbar>
@@ -268,6 +321,16 @@ export default function ProjectPage() {
             )}
           </Table.Tbody>
         </Table>
+        <TablePaginationControls
+          currentPage={reportPage}
+          total={reportTotal}
+          resultsPerPage={reportResultsPerPage}
+          onPageChange={(nextPage) => setReportPage(nextPage)}
+          onResultsPerPageChange={(nextResultsPerPage) => {
+            setReportResultsPerPage(nextResultsPerPage);
+            setReportPage(1);
+          }}
+        />
       </SectionCard>
 
       <Modal opened={viewOpen} onClose={() => setViewOpen(false)} title="Report" size="lg" centered>
@@ -343,6 +406,16 @@ export default function ProjectPage() {
             )}
           </Table.Tbody>
         </Table>
+        <TablePaginationControls
+          currentPage={instancePage}
+          total={instanceTotal}
+          resultsPerPage={instanceResultsPerPage}
+          onPageChange={(nextPage) => setInstancePage(nextPage)}
+          onResultsPerPageChange={(nextResultsPerPage) => {
+            setInstanceResultsPerPage(nextResultsPerPage);
+            setInstancePage(1);
+          }}
+        />
       </Modal>
 
       <ConfirmModal

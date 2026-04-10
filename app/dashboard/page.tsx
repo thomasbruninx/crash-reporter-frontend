@@ -6,15 +6,8 @@ import { ActionToolbar } from "@/components/mantineui/action-toolbar";
 import { ConfirmModal } from "@/components/mantineui/confirm-modal";
 import { PageShell } from "@/components/mantineui/page-shell";
 import { SectionCard } from "@/components/mantineui/section-card";
-import {
-  Button,
-  Group,
-  Modal,
-  Stack,
-  Table,
-  TextInput,
-  Text
-} from "@mantine/core";
+import { TablePaginationControls } from "@/components/mantineui/table-pagination-controls";
+import { Button, Group, Modal, Stack, Table, TextInput, Text } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -23,7 +16,7 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import SaveIcon from "@mui/icons-material/Save";
 import SettingsIcon from "@mui/icons-material/Settings";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type ProjectStats = { instances: number; day: number; week: number; total: number };
 type SortField = "name" | "project_id" | "instances" | "day" | "week" | "total";
@@ -31,35 +24,45 @@ type SortField = "name" | "project_id" | "instances" | "day" | "week" | "total";
 export default function DashboardPage() {
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectOut[]>([]);
+  const [totalProjects, setTotalProjects] = useState(0);
   const [selected, setSelected] = useState<string>("");
   const [showCreate, setShowCreate] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [projectId, setProjectId] = useState("");
   const [name, setName] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [resultsPerPage, setResultsPerPage] = useState(25);
   const [stats, setStats] = useState<Record<string, ProjectStats>>({});
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortAsc, setSortAsc] = useState(true);
-  const didInitialLoadRef = useRef(false);
 
-  async function load() {
+  const load = useCallback(async (page: number, perPage: number) => {
     try {
-      const items = await queryProjects();
+      const data = await queryProjects({ page: page - 1, resultsperpage: perPage });
+      const totalPages = Math.max(1, Math.ceil(data.total / perPage));
+      if (page > totalPages) {
+        setCurrentPage(totalPages);
+        return;
+      }
+      const items = data.items;
       setProjects(items);
+      setTotalProjects(data.total);
+      setSelected((prev) => (items.some((p) => p.uuid === prev) ? prev : ""));
       const nextStats: Record<string, ProjectStats> = {};
       const settledStats = await Promise.allSettled(
         items.map(async (p) => {
           const [instances, reports] = await Promise.all([
-            queryInstances({ projectUuid: p.uuid, projectId: p.project_id }),
-            queryReports(p.uuid)
+            queryInstances({ projectUuid: p.uuid, projectId: p.project_id, resultsperpage: 0 }),
+            queryReports(p.uuid, undefined, undefined, { resultsperpage: 0 })
           ]);
           const now = Date.now();
           return {
             uuid: p.uuid,
             stats: {
-              instances: instances.length,
-              day: reports.filter((r) => now - new Date(r.timestamp).getTime() <= 24 * 3600 * 1000).length,
-              week: reports.filter((r) => now - new Date(r.timestamp).getTime() <= 7 * 24 * 3600 * 1000).length,
-              total: reports.length
+              instances: instances.items.length,
+              day: reports.items.filter((r) => now - new Date(r.timestamp).getTime() <= 24 * 3600 * 1000).length,
+              week: reports.items.filter((r) => now - new Date(r.timestamp).getTime() <= 7 * 24 * 3600 * 1000).length,
+              total: reports.items.length
             }
           };
         })
@@ -86,13 +89,11 @@ export default function DashboardPage() {
     } catch {
       notifications.show({ color: "red", title: "Projects", message: "Failed to load projects" });
     }
-  }
+  }, []);
 
   useEffect(() => {
-    if (didInitialLoadRef.current) return;
-    didInitialLoadRef.current = true;
-    void load();
-  }, []);
+    void load(currentPage, resultsPerPage);
+  }, [currentPage, resultsPerPage, load]);
 
   const selectedProject = useMemo(() => projects.find((p) => p.uuid === selected), [projects, selected]);
   const sortedProjects = useMemo(() => {
@@ -147,7 +148,8 @@ export default function DashboardPage() {
       setShowCreate(false);
       setProjectId("");
       setName("");
-      await load();
+      setCurrentPage(1);
+      await load(1, resultsPerPage);
     } catch {
       notifications.show({ color: "red", title: "Project", message: "Create failed" });
     }
@@ -160,7 +162,7 @@ export default function DashboardPage() {
       notifications.show({ color: "green", title: "Project", message: "Project deleted" });
       setShowDelete(false);
       setSelected("");
-      await load();
+      await load(currentPage, resultsPerPage);
     } catch {
       notifications.show({ color: "red", title: "Project", message: "Delete failed" });
     }
@@ -260,6 +262,16 @@ export default function DashboardPage() {
             )}
           </Table.Tbody>
         </Table>
+        <TablePaginationControls
+          currentPage={currentPage}
+          total={totalProjects}
+          resultsPerPage={resultsPerPage}
+          onPageChange={(nextPage) => setCurrentPage(nextPage)}
+          onResultsPerPageChange={(nextResultsPerPage) => {
+            setResultsPerPage(nextResultsPerPage);
+            setCurrentPage(1);
+          }}
+        />
       </SectionCard>
 
       <Modal opened={showCreate} onClose={() => setShowCreate(false)} title="Create project" centered>
