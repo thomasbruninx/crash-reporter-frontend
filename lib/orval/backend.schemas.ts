@@ -49,11 +49,13 @@ export interface ProjectCreate {
   name: string;
 }
 
+export type ProjectOutStats = ProjectStats | null;
+
 export interface ProjectOut {
   uuid: string;
   project_id: string;
   name: string;
-  stats?: ProjectStats | null;
+  stats?: ProjectOutStats;
 }
 
 export interface ProjectQueryResponse {
@@ -173,3 +175,4 @@ resultsperpage?: number;
 sort_by?: string | null;
 sort_dir?: string;
 };
+

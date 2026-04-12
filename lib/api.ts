@@ -15,8 +15,8 @@ export async function login(username: string, password: string) {
 }
 
 export async function queryProjects(params?: {
-  uuids?: string[];
-  project_ids?: string[];
+  uuids?: string | string[];
+  project_ids?: string | string[];
   page?: number;
   resultsperpage?: number;
   name?: string;

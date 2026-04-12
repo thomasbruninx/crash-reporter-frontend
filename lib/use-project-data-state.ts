@@ -51,7 +51,7 @@ export function useProjectDataState(uuid: string) {
       nextInstanceSortDir: "asc" | "desc"
     ) => {
       try {
-        const projectResponse = await queryProjects({ uuids: [uuid], page: 0, resultsperpage: 1 });
+        const projectResponse = await queryProjects({ uuids: uuid, page: 0, resultsperpage: 1 });
         const project = projectResponse.items[0];
         setName(project?.name || "Project");
 

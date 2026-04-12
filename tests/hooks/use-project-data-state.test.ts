@@ -59,7 +59,7 @@ describe("useProjectDataState", () => {
       expect(result.current.instances).toHaveLength(1);
     });
 
-    expect(mockQueryProjects).toHaveBeenCalledWith({ uuids: ["project-1"], page: 0, resultsperpage: 1 });
+    expect(mockQueryProjects).toHaveBeenCalledWith({ uuids: "project-1", page: 0, resultsperpage: 1 });
   });
 
   it("resets report page to 1 when changing report sort field", async () => {
