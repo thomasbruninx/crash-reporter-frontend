@@ -1,7 +1,7 @@
 "use client";
 
 import { login } from "@/lib/api";
-import { PageShell } from "@/components/mantineui/page-shell";
+import { PageShell } from "@/components/layout/page-shell";
 import {
   Button,
   Card,

@@ -2,18 +2,19 @@
 
 import { createProject, deleteProject, queryProjects } from "@/lib/api";
 import type { ProjectOut } from "@/lib/orval/backend.schemas";
-import { ActionToolbar } from "@/components/mantineui/action-toolbar";
-import { ConfirmModal } from "@/components/mantineui/confirm-modal";
-import { PageShell } from "@/components/mantineui/page-shell";
-import { SectionCard } from "@/components/mantineui/section-card";
-import { TablePaginationControls } from "@/components/mantineui/table-pagination-controls";
-import { Button, Group, Modal, Stack, Table, TextInput, Text } from "@mantine/core";
+import { ActionToolbar } from "@/components/toolbars/action-toolbar";
+import { ConfirmModal } from "@/components/modals/confirm-modal";
+import { CreateProjectModal } from "@/components/modals/create-project-modal";
+import { PageShell } from "@/components/layout/page-shell";
+import { SectionCard } from "@/components/layout/section-card";
+import { TablePaginationControls } from "@/components/tables/table-pagination-controls";
+import { useSortState } from "@/lib/use-sort-state";
+import { Button, Group, Table, Text } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import SaveIcon from "@mui/icons-material/Save";
 import SettingsIcon from "@mui/icons-material/Settings";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -31,8 +32,7 @@ export default function DashboardPage() {
   const [name, setName] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [resultsPerPage, setResultsPerPage] = useState(25);
-  const [sortField, setSortField] = useState<SortField>("name");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const { sortField, sortDirection: sortDir, toggleSort, indicatorFor } = useSortState<SortField>("name", "asc");
 
   const load = useCallback(async (page: number, perPage: number, sortBy: SortField, nextSortDir: "asc" | "desc") => {
     try {
@@ -64,19 +64,13 @@ export default function DashboardPage() {
   const selectedProject = useMemo(() => projects.find((p) => p.uuid === selected), [projects, selected]);
 
   function onSort(field: SortField) {
-    if (sortField === field) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-      setCurrentPage(1);
-      return;
-    }
-    setSortField(field);
-    setSortDir("asc");
-    setCurrentPage(1);
+    toggleSort(field, () => setCurrentPage(1));
   }
 
   function sortIcon(field: SortField) {
-    if (sortField !== field) return <ExpandMoreIcon fontSize="small" />;
-    return sortDir === "asc" ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />;
+    const indicator = indicatorFor(field);
+    if (indicator === "asc") return <ExpandLessIcon fontSize="small" />;
+    return <ExpandMoreIcon fontSize="small" />;
   }
 
   async function onCreate() {
@@ -212,15 +206,15 @@ export default function DashboardPage() {
         />
       </SectionCard>
 
-      <Modal opened={showCreate} onClose={() => setShowCreate(false)} title="Create project" centered>
-        <Stack>
-          <TextInput label="Name" value={name} onChange={(e) => setName(e.currentTarget.value)} />
-          <TextInput label="Project ID" value={projectId} onChange={(e) => setProjectId(e.currentTarget.value)} />
-          <Button leftSection={<SaveIcon fontSize="small" />} aria-label="Save project" title="Save project" onClick={onCreate}>
-            Save
-          </Button>
-        </Stack>
-      </Modal>
+      <CreateProjectModal
+        opened={showCreate}
+        onClose={() => setShowCreate(false)}
+        name={name}
+        projectId={projectId}
+        onNameChange={setName}
+        onProjectIdChange={setProjectId}
+        onSave={onCreate}
+      />
 
       <ConfirmModal
         opened={showDelete}
